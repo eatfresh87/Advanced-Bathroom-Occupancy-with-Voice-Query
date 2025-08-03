@@ -59,6 +59,24 @@ blueprint:
           mode: slider
           step: 5
       default: 30
+    manual_override_delay:
+      name: Manual Override Delay (Seconds)
+      description: How long to wait before checking sensors after manual light operation.
+      selector:
+        number:
+          min: 5
+          max: 60
+          unit_of_measurement: seconds
+          mode: slider
+          step: 5
+      default: 10
+    enable_manual_safeguards:
+      name: Enable Manual Operation Safeguards
+      description: When enabled, the automation will handle manual light operations intelligently.
+      selector:
+        boolean:
+      default: true
+
     voice_assistant:
       name: Voice Assistant
       description: The voice assistant to use for speech recognition.
@@ -66,12 +84,15 @@ blueprint:
         entity:
           domain: conversation
       default: conversation.home_assistant
-
 mode: single
+
 max_exceeded: silent
 
 variables:
+  light_entity: !input light_target
   motion_delay: !input motion_clear_delay
+  manual_delay: !input manual_override_delay
+  safeguards_enabled: !input enable_manual_safeguards
 
 trigger:
   - platform: state
@@ -93,6 +114,14 @@ trigger:
     for:
       seconds: "{{ motion_delay }}"
     id: motion_cleared
+  - platform: state
+    entity_id: !input light_target
+    to: 'on'
+    id: manual_light_on
+  - platform: state
+    entity_id: !input light_target
+    to: 'off'
+    id: manual_light_off
 
 action:
   - choose:
@@ -268,6 +297,142 @@ action:
                         data:
                           message: "Turning off the bathroom light."
                           cache: true
+
+      # === MANUAL LIGHT TURNED ON ===
+      - conditions:
+          - condition: trigger
+            id: manual_light_on
+          - condition: template
+            value_template: "{{ safeguards_enabled }}"
+        sequence:
+          - delay:
+              seconds: "{{ manual_delay }}"
+          - choose:
+              # If occupancy helper is OFF but light was manually turned on
+              - conditions:
+                  - condition: state
+                    entity_id: !input occupancy_helper
+                    state: 'off'
+                sequence:
+                  # Check if there's actually motion or door is open
+                  - choose:
+                      - conditions:
+                          - condition: or
+                            conditions:
+                              - condition: state
+                                entity_id: !input motion_sensor
+                                state: 'on'
+                              - condition: state
+                                entity_id: !input door_sensor
+                                state: 'on'
+                        sequence:
+                          # Motion/door detected, update occupancy
+                          - service: input_boolean.turn_on
+                            target:
+                              entity_id: !input occupancy_helper
+                    default:
+                      # No motion/door activity, assume someone is inside but not moving
+                      - service: input_boolean.turn_on
+                        target:
+                          entity_id: !input occupancy_helper
+
+      # === MANUAL LIGHT TURNED OFF ===
+      - conditions:
+          - condition: trigger
+            id: manual_light_off
+          - condition: template
+            value_template: "{{ safeguards_enabled }}"
+        sequence:
+          - delay:
+              seconds: "{{ manual_delay }}"
+          - choose:
+              # If occupancy helper is ON but light was manually turned off
+              - conditions:
+                  - condition: state
+                    entity_id: !input occupancy_helper
+                    state: 'on'
+                sequence:
+                  # Check current sensor states
+                  - choose:
+                      # If motion is active or door is open, someone is likely still there
+                      - conditions:
+                          - condition: or
+                            conditions:
+                              - condition: state
+                                entity_id: !input motion_sensor
+                                state: 'on'
+                              - condition: state
+                                entity_id: !input door_sensor
+                                state: 'on'
+                        sequence:
+                          # Ask if they want the light back on
+                          - service: tts.speak
+                            target:
+                              entity_id: !input media_player
+                            data:
+                              message: "Light was turned off manually. Should I turn it back on? Say yes or no."
+                              cache: true
+                          - wait_for_trigger:
+                              - platform: conversation
+                                command: 
+                                  - "yes"
+                                  - "yeah"
+                                  - "yep"
+                                  - "turn it on"
+                                  - "turn on"
+                                id: "restore_yes"
+                              - platform: conversation
+                                command:
+                                  - "no"
+                                  - "nope"
+                                  - "keep it off"
+                                  - "leave it off"
+                                id: "restore_no"
+                            timeout:
+                              minutes: 1
+                            continue_on_timeout: true
+                          - choose:
+                              # User wants light back on
+                              - conditions:
+                                  - condition: trigger
+                                    id: "restore_yes"
+                                sequence:
+                                  - service: homeassistant.turn_on
+                                    entity_id: !input light_target
+                                  - service: tts.speak
+                                    target:
+                                      entity_id: !input media_player
+                                    data:
+                                      message: "Turning the light back on."
+                                      cache: true
+                              # User wants light off or no response
+                              - conditions:
+                                  - condition: or
+                                    conditions:
+                                      - condition: trigger
+                                        id: "restore_no"
+                                      - condition: not
+                                        conditions:
+                                          - condition: trigger
+                                            id: ["restore_yes", "restore_no"]
+                                sequence:
+                                  # Update occupancy to match manual action
+                                  - service: input_boolean.turn_off
+                                    target:
+                                      entity_id: !input occupancy_helper
+                                  - condition: trigger
+                                    id: "restore_no"
+                                  - service: tts.speak
+                                    target:
+                                      entity_id: !input media_player
+                                    data:
+                                      message: "Okay, keeping the light off."
+                                      cache: true
+                    default:
+                      # No motion/door activity, assume manual turn-off is intentional
+                      - service: input_boolean.turn_off
+                        target:
+                          entity_id: !input occupancy_helper
 
       # === MOTION CLEARED (Alternative trigger) ===
       - conditions:
