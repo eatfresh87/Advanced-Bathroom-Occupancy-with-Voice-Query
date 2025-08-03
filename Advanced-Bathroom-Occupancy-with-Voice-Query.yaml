@@ -1,0 +1,346 @@
+blueprint:
+  name: Advanced Bathroom Occupancy with Voice Query
+  description: "Manages a bathroom light using motion and door sensors. When the room appears to be empty (door closes and motion stops), it asks a question on a media player to confirm occupancy before turning off the light. Requires a configured Voice Assistant and an input_boolean helper."
+  domain: automation
+  input:
+    motion_sensor:
+      name: Motion Sensor
+      description: The sensor that detects motion in the bathroom.
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: motion
+    door_sensor:
+      name: Door Sensor
+      description: The sensor on the bathroom door.
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: door
+    light_target:
+      name: Light
+      description: The light switch or light group to control.
+      selector:
+        target:
+          entity:
+            - domain: light
+            - domain: switch
+    occupancy_helper:
+      name: Occupancy Helper (Input Boolean)
+      description: An input_boolean helper to track if the room is occupied. This blueprint will manage its state.
+      selector:
+        entity:
+          domain: input_boolean
+    media_player:
+      name: Media Player
+      description: The speaker for asking the confirmation question.
+      selector:
+        entity:
+          domain: media_player
+    no_response_timeout:
+      name: No Response Timeout (Minutes)
+      description: Time to wait for a voice response before turning off the light.
+      selector:
+        number:
+          min: 1
+          max: 30
+          unit_of_measurement: minutes
+          mode: slider
+          step: 1
+      default: 2
+    motion_clear_delay:
+      name: Motion Clear Delay (Seconds)
+      description: How long to wait after motion stops before checking occupancy.
+      selector:
+        number:
+          min: 5
+          max: 300
+          unit_of_measurement: seconds
+          mode: slider
+          step: 5
+      default: 30
+    voice_assistant:
+      name: Voice Assistant
+      description: The voice assistant to use for speech recognition.
+      selector:
+        entity:
+          domain: conversation
+      default: conversation.home_assistant
+
+mode: single
+max_exceeded: silent
+
+variables:
+  motion_delay: !input motion_clear_delay
+
+trigger:
+  - platform: state
+    entity_id: !input motion_sensor
+    to: 'on'
+    id: motion_on
+  - platform: state
+    entity_id: !input door_sensor
+    to: 'on'
+    id: door_opened
+  - platform: state
+    entity_id: !input door_sensor
+    from: 'on'
+    to: 'off'
+    id: door_closed
+  - platform: state
+    entity_id: !input motion_sensor
+    to: 'off'
+    for:
+      seconds: "{{ motion_delay }}"
+    id: motion_cleared
+
+action:
+  - choose:
+      # === OCCUPANCY DETECTED ===
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: motion_on
+              - condition: trigger
+                id: door_opened
+        sequence:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input occupancy_helper
+          - service: homeassistant.turn_on
+            target: !input light_target
+
+      # === POTENTIAL EXIT DETECTED ===
+      - conditions:
+          - condition: trigger
+            id: door_closed
+          - condition: state
+            entity_id: !input occupancy_helper
+            state: 'on'
+        sequence:
+          # Wait a moment for any immediate motion
+          - delay: '00:00:05'
+          # Check if motion is still active
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input motion_sensor
+                    state: 'on'
+                sequence:
+                  # Motion detected, wait for it to clear
+                  - wait_for_trigger:
+                      - platform: state
+                        entity_id: !input motion_sensor
+                        to: 'off'
+                        for:
+                          seconds: "{{ motion_delay }}"
+                    timeout: '00:05:00'
+                    continue_on_timeout: false
+                  # Motion cleared, proceed with voice confirmation
+                  - service: tts.speak
+                    target:
+                      entity_id: !input media_player
+                    data:
+                      message: "Is someone still in the bathroom? Please say yes or no."
+                      cache: true
+                  # Wait for voice response
+                  - wait_for_trigger:
+                      - platform: conversation
+                        command: 
+                          - "yes"
+                          - "yeah"
+                          - "yep"
+                          - "still here"
+                          - "occupied"
+                        id: "response_yes"
+                      - platform: conversation
+                        command:
+                          - "no"
+                          - "nope"
+                          - "empty"
+                          - "not occupied"
+                          - "nobody here"
+                        id: "response_no"
+                    timeout:
+                      minutes: !input no_response_timeout
+                    continue_on_timeout: true
+                  # Process response
+                  - choose:
+                      # User said yes - keep light on
+                      - conditions:
+                          - condition: trigger
+                            id: "response_yes"
+                        sequence:
+                          - service: tts.speak
+                            target:
+                              entity_id: !input media_player
+                            data:
+                              message: "Okay, keeping the light on."
+                              cache: true
+                      # User said no or no response - turn off
+                      - conditions:
+                          - condition: or
+                            conditions:
+                              - condition: trigger
+                                id: "response_no"
+                              - condition: not
+                                conditions:
+                                  - condition: trigger
+                                    id: ["response_yes", "response_no"]
+                        sequence:
+                          - service: input_boolean.turn_off
+                            target:
+                              entity_id: !input occupancy_helper
+                          - service: homeassistant.turn_off
+                            target: !input light_target
+                          - condition: trigger
+                            id: "response_no"
+                          - service: tts.speak
+                            target:
+                              entity_id: !input media_player
+                            data:
+                              message: "Turning off the bathroom light."
+                              cache: true
+            default:
+              # No motion detected after door closed
+              - service: tts.speak
+                target:
+                  entity_id: !input media_player
+                data:
+                  message: "Is someone still in the bathroom? Please say yes or no."
+                  cache: true
+              # Wait for voice response
+              - wait_for_trigger:
+                  - platform: conversation
+                    command: 
+                      - "yes"
+                      - "yeah"
+                      - "yep"
+                      - "still here"
+                      - "occupied"
+                    id: "response_yes"
+                  - platform: conversation
+                    command:
+                      - "no"
+                      - "nope"
+                      - "empty"
+                      - "not occupied"
+                      - "nobody here"
+                    id: "response_no"
+                timeout:
+                  minutes: !input no_response_timeout
+                continue_on_timeout: true
+              # Process response
+              - choose:
+                  # User said yes - keep light on
+                  - conditions:
+                      - condition: trigger
+                        id: "response_yes"
+                    sequence:
+                      - service: tts.speak
+                        target:
+                          entity_id: !input media_player
+                        data:
+                          message: "Okay, keeping the light on."
+                          cache: true
+                  # User said no or no response - turn off
+                  - conditions:
+                      - condition: or
+                        conditions:
+                          - condition: trigger
+                            id: "response_no"
+                          - condition: not
+                            conditions:
+                              - condition: trigger
+                                id: ["response_yes", "response_no"]
+                    sequence:
+                      - service: input_boolean.turn_off
+                        target:
+                          entity_id: !input occupancy_helper
+                      - service: homeassistant.turn_off
+                        target: !input light_target
+                      - condition: trigger
+                        id: "response_no"
+                      - service: tts.speak
+                        target:
+                          entity_id: !input media_player
+                        data:
+                          message: "Turning off the bathroom light."
+                          cache: true
+
+      # === MOTION CLEARED (Alternative trigger) ===
+      - conditions:
+          - condition: trigger
+            id: motion_cleared
+          - condition: state
+            entity_id: !input occupancy_helper
+            state: 'on'
+          - condition: state
+            entity_id: !input door_sensor
+            state: 'off'  # Door is closed
+        sequence:
+          - service: tts.speak
+            target:
+              entity_id: !input media_player
+            data:
+              message: "Is someone still in the bathroom? Please say yes or no."
+              cache: true
+          # Wait for voice response
+          - wait_for_trigger:
+              - platform: conversation
+                command: 
+                  - "yes"
+                  - "yeah"
+                  - "yep"
+                  - "still here"
+                  - "occupied"
+                id: "response_yes"
+              - platform: conversation
+                command:
+                  - "no"
+                  - "nope"
+                  - "empty"
+                  - "not occupied"
+                  - "nobody here"
+                id: "response_no"
+            timeout:
+              minutes: !input no_response_timeout
+            continue_on_timeout: true
+          # Process response
+          - choose:
+              # User said yes - keep light on
+              - conditions:
+                  - condition: trigger
+                    id: "response_yes"
+                sequence:
+                  - service: tts.speak
+                    target:
+                      entity_id: !input media_player
+                    data:
+                      message: "Okay, keeping the light on."
+                      cache: true
+              # User said no or no response - turn off
+              - conditions:
+                  - condition: or
+                    conditions:
+                      - condition: trigger
+                        id: "response_no"
+                      - condition: not
+                        conditions:
+                          - condition: trigger
+                            id: ["response_yes", "response_no"]
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input occupancy_helper
+                  - service: homeassistant.turn_off
+                    target: !input light_target
+                  - condition: trigger
+                    id: "response_no"
+                  - service: tts.speak
+                    target:
+                      entity_id: !input media_player
+                    data:
+                      message: "Turning off the bathroom light."
+                      cache: true
