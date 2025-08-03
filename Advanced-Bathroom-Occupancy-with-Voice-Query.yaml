@@ -100,7 +100,6 @@ mode: single
 max_exceeded: silent
 
 variables:
-  light_entity: !input light_target
   motion_delay: !input motion_clear_delay
   manual_delay: !input manual_override_delay
   safeguards_enabled: !input enable_manual_safeguards
@@ -527,7 +526,8 @@ action:
                                     id: "restore_yes"
                                 sequence:
                                   - service: homeassistant.turn_on
-                                    entity_id: !input light_target
+                                    target:
+                                      entity_id: !input light_target
                                   - service: tts.speak
                                     target:
                                       entity_id: !input media_player
