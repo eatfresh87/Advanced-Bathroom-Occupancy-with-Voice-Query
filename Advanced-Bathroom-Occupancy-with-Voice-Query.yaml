@@ -527,7 +527,8 @@ action:
                                     id: "restore_yes"
                                 sequence:
                                   - service: homeassistant.turn_on
-                                    entity_id: !input light_target
+                                    target:
+                                      entity_id: !input light_target
                                   - service: tts.speak
                                     target:
                                       entity_id: !input media_player
