@@ -100,12 +100,9 @@ mode: single
 max_exceeded: silent
 
 variables:
-  light_entity: !input light_target
   motion_delay: !input motion_clear_delay
   manual_delay: !input manual_override_delay
   safeguards_enabled: !input enable_manual_safeguards
-  first_timeout: !input first_question_timeout
-  second_timeout: !input second_question_timeout
 
 trigger:
   - platform: state
@@ -161,16 +158,13 @@ action:
             entity_id: !input occupancy_helper
             state: 'on'
         sequence:
-          # Wait a moment for any immediate motion
           - delay: '00:00:05'
-          # Check if motion is still active
           - choose:
               - conditions:
                   - condition: state
                     entity_id: !input motion_sensor
                     state: 'on'
                 sequence:
-                  # Motion detected, wait for it to clear
                   - wait_for_trigger:
                       - platform: state
                         entity_id: !input motion_sensor
@@ -179,259 +173,29 @@ action:
                           seconds: "{{ motion_delay }}"
                     timeout: '00:05:00'
                     continue_on_timeout: false
-                  # Motion cleared, proceed with voice confirmation
-                  - service: tts.speak
-                    target:
-                      entity_id: !input media_player
+                  - service: script.bathroom_occupancy_voice_query_script
                     data:
-                      message: "Is someone still in the bathroom? Please say yes or no. If you cannot answer right now, I will ask again in one minute before turning off the light."
-                      cache: true
-                  # Wait for voice response to first question
-                  - wait_for_trigger:
-                      - platform: conversation
-                        command: 
-                          - "yes"
-                          - "yeah"
-                          - "yep"
-                          - "still here"
-                          - "occupied"
-                        id: "response_yes_1"
-                      - platform: conversation
-                        command:
-                          - "no"
-                          - "nope"
-                          - "empty"
-                          - "not occupied"
-                          - "nobody here"
-                        id: "response_no_1"
-                    timeout:
-                      seconds: "{{ first_timeout }}"
-                    continue_on_timeout: true
-                  # Process first response or ask second question
-                  - choose:
-                      # User said yes to first question - keep light on
-                      - conditions:
-                          - condition: trigger
-                            id: "response_yes_1"
-                        sequence:
-                          - service: tts.speak
-                            target:
-                              entity_id: !input media_player
-                            data:
-                              message: "Okay, keeping the light on."
-                              cache: true
-                      # User said no to first question - turn off
-                      - conditions:
-                          - condition: trigger
-                            id: "response_no_1"
-                        sequence:
-                          - service: input_boolean.turn_off
-                            target:
-                              entity_id: !input occupancy_helper
-                          - service: homeassistant.turn_off
-                            target: !input light_target
-                          - service: tts.speak
-                            target:
-                              entity_id: !input media_player
-                            data:
-                              message: "Turning off the bathroom light."
-                              cache: true
-                    # No response to first question - ask second question
-                    default:
-                      - service: tts.speak
-                        target:
-                          entity_id: !input media_player
-                        data:
-                          message: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
-                          cache: true
-                      # Wait for voice response to second question
-                      - wait_for_trigger:
-                          - platform: conversation
-                            command: 
-                              - "yes"
-                              - "yeah"
-                              - "yep"
-                              - "still here"
-                              - "occupied"
-                            id: "response_yes_2"
-                          - platform: conversation
-                            command:
-                              - "no"
-                              - "nope"
-                              - "empty"
-                              - "not occupied"
-                              - "nobody here"
-                            id: "response_no_2"
-                        timeout:
-                          seconds: "{{ second_timeout }}"
-                        continue_on_timeout: true
-                      # Process second response
-                      - choose:
-                          # User said yes to second question - keep light on
-                          - conditions:
-                              - condition: trigger
-                                id: "response_yes_2"
-                            sequence:
-                              - service: tts.speak
-                                target:
-                                  entity_id: !input media_player
-                                data:
-                                  message: "Okay, keeping the light on."
-                                  cache: true
-                          # User said no to second question or no response - turn off
-                          - conditions:
-                              - condition: or
-                                conditions:
-                                  - condition: trigger
-                                    id: "response_no_2"
-                                  - condition: not
-                                    conditions:
-                                      - condition: trigger
-                                        id: ["response_yes_2", "response_no_2"]
-                            sequence:
-                              - service: input_boolean.turn_off
-                                target:
-                                  entity_id: !input occupancy_helper
-                              - service: homeassistant.turn_off
-                                target: !input light_target
-                              - choose:
-                                  - conditions:
-                                      - condition: trigger
-                                        id: "response_no_2"
-                                    sequence:
-                                      - service: tts.speak
-                                        target:
-                                          entity_id: !input media_player
-                                        data:
-                                          message: "Turning off the bathroom light."
-                                          cache: true
+                      media_player_entity: !input media_player
+                      occupancy_helper_entity: !input occupancy_helper
+                      light_target_entity: !input light_target
+                      first_question: "Is someone still in the bathroom? Please say yes or no. If you cannot answer right now, I will ask again in one minute before turning off the light."
+                      second_question: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
+                      first_timeout: !input first_question_timeout
+                      second_timeout: !input second_question_timeout
+                      turn_on_message: "Okay, keeping the light on."
+                      turn_off_message: "Turning off the bathroom light."
             default:
-              # No motion detected after door closed
-              - service: tts.speak
-                target:
-                  entity_id: !input media_player
+              - service: script.bathroom_occupancy_voice_query_script
                 data:
-                  message: "Is someone still in the bathroom? Please say yes or no. If you cannot answer right now, I will ask again in one minute before turning off the light."
-                  cache: true
-              # Wait for voice response to first question
-              - wait_for_trigger:
-                  - platform: conversation
-                    command: 
-                      - "yes"
-                      - "yeah"
-                      - "yep"
-                      - "still here"
-                      - "occupied"
-                    id: "response_yes_1"
-                  - platform: conversation
-                    command:
-                      - "no"
-                      - "nope"
-                      - "empty"
-                      - "not occupied"
-                      - "nobody here"
-                    id: "response_no_1"
-                timeout:
-                  seconds: "{{ first_timeout }}"
-                continue_on_timeout: true
-              # Process first response or ask second question
-              - choose:
-                  # User said yes to first question - keep light on
-                  - conditions:
-                      - condition: trigger
-                        id: "response_yes_1"
-                    sequence:
-                      - service: tts.speak
-                        target:
-                          entity_id: !input media_player
-                        data:
-                          message: "Okay, keeping the light on."
-                          cache: true
-                  # User said no to first question - turn off
-                  - conditions:
-                      - condition: trigger
-                        id: "response_no_1"
-                    sequence:
-                      - service: input_boolean.turn_off
-                        target:
-                          entity_id: !input occupancy_helper
-                      - service: homeassistant.turn_off
-                        target: !input light_target
-                      - service: tts.speak
-                        target:
-                          entity_id: !input media_player
-                        data:
-                          message: "Turning off the bathroom light."
-                          cache: true
-                # No response to first question - ask second question
-                default:
-                  - service: tts.speak
-                    target:
-                      entity_id: !input media_player
-                    data:
-                      message: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
-                      cache: true
-                  # Wait for voice response to second question
-                  - wait_for_trigger:
-                      - platform: conversation
-                        command: 
-                          - "yes"
-                          - "yeah"
-                          - "yep"
-                          - "still here"
-                          - "occupied"
-                        id: "response_yes_2"
-                      - platform: conversation
-                        command:
-                          - "no"
-                          - "nope"
-                          - "empty"
-                          - "not occupied"
-                          - "nobody here"
-                        id: "response_no_2"
-                    timeout:
-                      seconds: "{{ second_timeout }}"
-                    continue_on_timeout: true
-                  # Process second response
-                  - choose:
-                      # User said yes to second question - keep light on
-                      - conditions:
-                          - condition: trigger
-                            id: "response_yes_2"
-                        sequence:
-                          - service: tts.speak
-                            target:
-                              entity_id: !input media_player
-                            data:
-                              message: "Okay, keeping the light on."
-                              cache: true
-                      # User said no to second question or no response - turn off
-                      - conditions:
-                          - condition: or
-                            conditions:
-                              - condition: trigger
-                                id: "response_no_2"
-                              - condition: not
-                                conditions:
-                                  - condition: trigger
-                                    id: ["response_yes_2", "response_no_2"]
-                        sequence:
-                          - service: input_boolean.turn_off
-                            target:
-                              entity_id: !input occupancy_helper
-                          - service: homeassistant.turn_off
-                            target: !input light_target
-                          - choose:
-                              - conditions:
-                                  - condition: trigger
-                                    id: "response_no_2"
-                                sequence:
-                                  - service: tts.speak
-                                    target:
-                                      entity_id: !input media_player
-                                    data:
-                                      message: "Turning off the bathroom light."
-                                      cache: true
+                  media_player_entity: !input media_player
+                  occupancy_helper_entity: !input occupancy_helper
+                  light_target_entity: !input light_target
+                  first_question: "Is someone still in the bathroom? Please say yes or no. If you cannot answer right now, I will ask again in one minute before turning off the light."
+                  second_question: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
+                  first_timeout: !input first_question_timeout
+                  second_timeout: !input second_question_timeout
+                  turn_on_message: "Okay, keeping the light on."
+                  turn_off_message: "Turning off the bathroom light."
 
       # === MANUAL LIGHT TURNED ON ===
       - conditions:
@@ -443,13 +207,11 @@ action:
           - delay:
               seconds: "{{ manual_delay }}"
           - choose:
-              # If occupancy helper is OFF but light was manually turned on
               - conditions:
                   - condition: state
                     entity_id: !input occupancy_helper
                     state: 'off'
                 sequence:
-                  # Check if there's actually motion or door is open
                   - choose:
                       - conditions:
                           - condition: or
@@ -461,12 +223,10 @@ action:
                                 entity_id: !input door_sensor
                                 state: 'on'
                         sequence:
-                          # Motion/door detected, update occupancy
                           - service: input_boolean.turn_on
                             target:
                               entity_id: !input occupancy_helper
                     default:
-                      # No motion/door activity, assume someone is inside but not moving
                       - service: input_boolean.turn_on
                         target:
                           entity_id: !input occupancy_helper
@@ -481,15 +241,12 @@ action:
           - delay:
               seconds: "{{ manual_delay }}"
           - choose:
-              # If occupancy helper is ON but light was manually turned off
               - conditions:
                   - condition: state
                     entity_id: !input occupancy_helper
                     state: 'on'
                 sequence:
-                  # Check current sensor states
                   - choose:
-                      # If motion is active or door is open, someone is likely still there
                       - conditions:
                           - condition: or
                             conditions:
@@ -500,7 +257,6 @@ action:
                                 entity_id: !input door_sensor
                                 state: 'on'
                         sequence:
-                          # Ask if they want the light back on
                           - service: tts.speak
                             target:
                               entity_id: !input media_player
@@ -527,7 +283,6 @@ action:
                               minutes: 1
                             continue_on_timeout: true
                           - choose:
-                              # User wants light back on
                               - conditions:
                                   - condition: trigger
                                     id: "restore_yes"
@@ -541,7 +296,6 @@ action:
                                     data:
                                       message: "Turning the light back on."
                                       cache: true
-                              # User wants light off or no response
                               - conditions:
                                   - condition: or
                                     conditions:
@@ -552,7 +306,6 @@ action:
                                           - condition: trigger
                                             id: ["restore_yes", "restore_no"]
                                 sequence:
-                                  # Update occupancy to match manual action
                                   - service: input_boolean.turn_off
                                     target:
                                       entity_id: !input occupancy_helper
@@ -571,7 +324,6 @@ action:
                                               message: "Okay, keeping the light off."
                                               cache: true
                     default:
-                      # No motion/door activity, assume manual turn-off is intentional
                       - service: input_boolean.turn_off
                         target:
                           entity_id: !input occupancy_helper
@@ -585,130 +337,16 @@ action:
             state: 'on'
           - condition: state
             entity_id: !input door_sensor
-            state: 'off'  # Door is closed
+            state: 'off'
         sequence:
-          - service: tts.speak
-            target:
-              entity_id: !input media_player
+          - service: script.bathroom_occupancy_voice_query_script
             data:
-              message: "Is someone still in the bathroom? Please say yes or no. If you cannot answer right now, I will ask again in one minute before turning off the light."
-              cache: true
-          # Wait for voice response to first question
-          - wait_for_trigger:
-              - platform: conversation
-                command: 
-                  - "yes"
-                  - "yeah"
-                  - "yep"
-                  - "still here"
-                  - "occupied"
-                id: "response_yes_1"
-              - platform: conversation
-                command:
-                  - "no"
-                  - "nope"
-                  - "empty"
-                  - "not occupied"
-                  - "nobody here"
-                id: "response_no_1"
-            timeout:
-              seconds: "{{ first_timeout }}"
-            continue_on_timeout: true
-          # Process first response or ask second question
-          - choose:
-              # User said yes to first question - keep light on
-              - conditions:
-                  - condition: trigger
-                    id: "response_yes_1"
-                sequence:
-                  - service: tts.speak
-                    target:
-                      entity_id: !input media_player
-                    data:
-                      message: "Okay, keeping the light on."
-                      cache: true
-              # User said no to first question - turn off
-              - conditions:
-                  - condition: trigger
-                    id: "response_no_1"
-                sequence:
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id: !input occupancy_helper
-                  - service: homeassistant.turn_off
-                    target: !input light_target
-                  - service: tts.speak
-                    target:
-                      entity_id: !input media_player
-                    data:
-                      message: "Turning off the bathroom light."
-                      cache: true
-            # No response to first question - ask second question
-            default:
-              - service: tts.speak
-                target:
-                  entity_id: !input media_player
-                data:
-                  message: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
-                  cache: true
-              # Wait for voice response to second question
-              - wait_for_trigger:
-                  - platform: conversation
-                    command: 
-                      - "yes"
-                      - "yeah"
-                      - "yep"
-                      - "still here"
-                      - "occupied"
-                    id: "response_yes_2"
-                  - platform: conversation
-                    command:
-                      - "no"
-                      - "nope"
-                      - "empty"
-                      - "not occupied"
-                      - "nobody here"
-                    id: "response_no_2"
-                timeout:
-                  seconds: "{{ second_timeout }}"
-                continue_on_timeout: true
-              # Process second response
-              - choose:
-                  # User said yes to second question - keep light on
-                  - conditions:
-                      - condition: trigger
-                        id: "response_yes_2"
-                    sequence:
-                      - service: tts.speak
-                        target:
-                          entity_id: !input media_player
-                        data:
-                          message: "Okay, keeping the light on."
-                          cache: true
-                  # User said no to second question or no response - turn off
-                  - conditions:
-                      - condition: or
-                        conditions:
-                          - condition: trigger
-                            id: "response_no_2"
-                          - condition: not
-                            conditions:
-                              - condition: trigger
-                                id: ["response_yes_2", "response_no_2"]
-                        sequence:
-                          - service: input_boolean.turn_off
-                            target:
-                              entity_id: !input occupancy_helper
-                          - service: homeassistant.turn_off
-                            target: !input light_target
-                          - choose:
-                              - conditions:
-                                  - condition: trigger
-                                    id: "response_no_2"
-                                sequence:
-                                  - service: tts.speak
-                                    target:
-                                      entity_id: !input media_player
-                                    data:
-                                      message: "Turning off the bathroom light."
-                                      cache: true
+              media_player_entity: !input media_player
+              occupancy_helper_entity: !input occupancy_helper
+              light_target_entity: !input light_target
+              first_question: "Is someone still in the bathroom? Please say yes or no. If you cannot answer right now, I will ask again in one minute before turning off the light."
+              second_question: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
+              first_timeout: !input first_question_timeout
+              second_timeout: !input second_question_timeout
+              turn_on_message: "Okay, keeping the light on."
+              turn_off_message: "Turning off the bathroom light."
