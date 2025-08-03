@@ -95,6 +95,14 @@ blueprint:
         entity:
           domain: conversation
       default: conversation.home_assistant
+    
+    voice_query_script:
+      name: Voice Query Script
+      description: The script created from the 'Bathroom Occupancy Voice Query Script' blueprint.
+      selector:
+        entity:
+          domain: script
+          
 mode: single
 
 max_exceeded: silent
@@ -173,12 +181,12 @@ action:
                           seconds: "{{ motion_delay }}"
                     timeout: '00:05:00'
                     continue_on_timeout: false
-                  - service: script.turn_on
-                    target:
-                      entity_id: !input media_player
+                  - service: !input voice_query_script
                     data:
                       variables:
-                        script: bathroom_voice_query
+                        media_player_entity: !input media_player
+                        occupancy_helper_entity: !input occupancy_helper
+                        light_target_entity: !input light_target
                         first_question: "Is someone still in the bathroom? Please say yes or no."
                         second_question: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
                         first_timeout: !input first_question_timeout
@@ -186,12 +194,12 @@ action:
                         turn_on_message: "Okay, keeping the light on."
                         turn_off_message: "Turning off the bathroom light."
             default:
-              - service: script.turn_on
-                target:
-                  entity_id: !input media_player
+              - service: !input voice_query_script
                 data:
                   variables:
-                    script: bathroom_voice_query
+                    media_player_entity: !input media_player
+                    occupancy_helper_entity: !input occupancy_helper
+                    light_target_entity: !input light_target
                     first_question: "Is someone still in the bathroom? Please say yes or no."
                     second_question: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
                     first_timeout: !input first_question_timeout
@@ -259,12 +267,12 @@ action:
                                 entity_id: !input door_sensor
                                 state: 'on'
                         sequence:
-                          - service: script.turn_on
-                            target:
-                              entity_id: !input media_player
+                          - service: !input voice_query_script
                             data:
                               variables:
-                                script: bathroom_voice_query
+                                media_player_entity: !input media_player
+                                occupancy_helper_entity: !input occupancy_helper
+                                light_target_entity: !input light_target
                                 first_question: "Light was turned off manually. Should I turn it back on?"
                                 second_question: "I'll keep the light off if I don't hear a response."
                                 first_timeout: 60
@@ -287,12 +295,12 @@ action:
             entity_id: !input door_sensor
             state: 'off'
         sequence:
-          - service: script.turn_on
-            target:
-              entity_id: !input media_player
+          - service: !input voice_query_script
             data:
               variables:
-                script: bathroom_voice_query
+                media_player_entity: !input media_player
+                occupancy_helper_entity: !input occupancy_helper
+                light_target_entity: !input light_target
                 first_question: "Is someone still in the bathroom? Please say yes or no."
                 second_question: "Last chance - is anyone still in the bathroom? Please say yes or no, or I will turn off the light."
                 first_timeout: !input first_question_timeout
