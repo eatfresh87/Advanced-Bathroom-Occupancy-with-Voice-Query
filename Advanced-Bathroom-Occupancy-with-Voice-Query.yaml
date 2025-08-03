@@ -100,7 +100,6 @@ mode: single
 max_exceeded: silent
 
 variables:
-  light_entity: !input light_target
   motion_delay: !input motion_clear_delay
   manual_delay: !input manual_override_delay
   safeguards_enabled: !input enable_manual_safeguards
@@ -527,7 +526,8 @@ action:
                                     id: "restore_yes"
                                 sequence:
                                   - service: homeassistant.turn_on
-                                    entity_id: !input light_target
+                                    data:
+                                      entity_id: !input light_target
                                   - service: tts.speak
                                     target:
                                       entity_id: !input media_player
@@ -549,20 +549,14 @@ action:
                                   - service: input_boolean.turn_off
                                     target:
                                       entity_id: !input occupancy_helper
-                                  - service: homeassistant.turn_off
-                                    target: !input light_target
-                                  # Only speak if the user said "no"
-                                  - choose:
-                                      - conditions:
-                                          - condition: trigger
-                                            id: "restore_no"
-                                        sequence:
-                                          - service: tts.speak
-                                            target:
-                                              entity_id: !input media_player
-                                            data:
-                                              message: "Okay, keeping the light off."
-                                              cache: true
+                                  - condition: trigger
+                                    id: "restore_no"
+                                  - service: tts.speak
+                                    target:
+                                      entity_id: !input media_player
+                                    data:
+                                      message: "Okay, keeping the light off."
+                                      cache: true
                     default:
                       # No motion/door activity, assume manual turn-off is intentional
                       - service: input_boolean.turn_off
@@ -688,17 +682,17 @@ action:
                             conditions:
                               - condition: trigger
                                 id: ["response_yes_2", "response_no_2"]
-                        sequence:
-                          - service: input_boolean.turn_off
-                            target:
-                              entity_id: !input occupancy_helper
-                          - service: homeassistant.turn_off
-                            target: !input light_target
-                          - condition: trigger
-                            id: "response_no_2"
-                          - service: tts.speak
-                            target:
-                              entity_id: !input media_player
-                            data:
-                              message: "Turning off the bathroom light."
-                              cache: true
+                    sequence:
+                      - service: input_boolean.turn_off
+                        target:
+                          entity_id: !input occupancy_helper
+                      - service: homeassistant.turn_off
+                        target: !input light_target
+                      - condition: trigger
+                        id: "response_no_2"
+                      - service: tts.speak
+                        target:
+                          entity_id: !input media_player
+                        data:
+                          message: "Turning off the bathroom light."
+                          cache: true
