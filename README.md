@@ -1,6 +1,6 @@
 # Advanced-Bathroom-Occupancy-with-Voice-Query
 "Manages a bathroom light using motion and door sensors. When the room appears to be empty (door closes and motion stops), it asks a question on a media player to confirm occupancy before turning off the light. Requires a configured Voice Assistant and an input_boolean helper."
-The blueprint controls the input_boolean in two places:
+#The blueprint controls the input_boolean in two places:
 1. Turns it ON when occupancy is detected:
 yaml# When motion is detected OR door opens
 - service: input_boolean.turn_on
